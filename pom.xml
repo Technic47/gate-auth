@@ -85,8 +85,8 @@
                             <rules>
                                 <requireJavaVersion>
                                     <version>[25,)</version>
-                                    <message>gate-auth needs Maven to run on JDK 25+. In IntelliJ: Settings → Build,
-                                        Execution, Deployment → Build Tools → Maven → Runner → JRE.</message>
+                                    <message>gate-auth needs Maven to run on JDK 25+. In IntelliJ: Settings > Build,
+                                        Execution, Deployment > Build Tools > Maven > Runner > JRE.</message>
                                 </requireJavaVersion>
                             </rules>
                         </configuration>
