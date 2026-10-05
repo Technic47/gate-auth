@@ -4,8 +4,10 @@ One auth standard for all of the owner's apps, built around **GateService** (`..
 The gate is the only place where users, passwords and per-app access live; apps only verify what the gate signed.
 
 - Spec (normative): [`docs/gate-auth-spec-v1.md`](docs/gate-auth-spec-v1.md)
-- Status: library **0.1.0**, all three modes implemented and tested. GateService issues the tokens on
-  branch `common_auth` (not deployed yet).
+- Status: **0.1.0 is on Maven Central** (`io.github.technic47.gateauth`), all three modes implemented and tested.
+  GateService 0.2.0 issues the tokens and runs on the VPS since 2026-10-05 (key id `KENl1RAjjHUDtdGm`, public key at
+  `https://144.31.187.7/.well-known/jwks.json`). No app uses the starter yet; newBikeService will be the first.
+- Repository: `https://github.com/Technic47/gate-auth`
 
 ## Modes
 
@@ -24,7 +26,8 @@ Each mode is switched on/off per app in config (restart to apply); one app can r
 | `gate-auth-core` | Plain Java 25, **no dependencies**. Ed25519 JWS sign/verify (JDK only), `GateClaims`, `GateUser`, key parsing (PEM / JWK / JWKS), `ReplayGuard`, `KeyTool`. Used by apps **and** by GateService (signer) |
 | `gate-auth-spring-boot-starter` | Spring Boot 4.1 / Spring Security 7.1 servlet starter: filters for all modes, `/auth/*` endpoints, CSRF (SPA cookie + header) and Origin checks, session handling |
 
-Coordinates: `io.github.technic47.gateauth:<artifact>:0.1.0`.
+Coordinates: `io.github.technic47.gateauth:<artifact>:0.1.0` (Maven Central). Java 25, Spring Boot 4.1 / Spring
+Security 7.1 for the starter. Apps on Boot 3 or older Java can't use it.
 
 ## Build
 
@@ -36,15 +39,38 @@ MVN="/c/Program Files/JetBrains/IntelliJIdea2026.1/plugins/maven/lib/maven3/bin/
 "$MVN" -B install          # builds, tests (57 tests), installs to ~/.m2
 ```
 
-Release to Maven Central: `"$MVN" -Prelease deploy` (GPG + central-publishing, same as the Shop starter).
+Maven must **run on JDK 25** (the build enforces it). `-Prelease -Dgpg.skip verify` checks the release artifacts
+(sources, javadoc) without signing.
+
+## Release to Maven Central
+
+Same setup as the Shop libraries (`central` server + GPG key in `~/.m2/settings.xml`), but the publishing plugins
+live in the **`release` profile**, so normal builds don't need GPG (GateService's Docker build used to `install`
+`gate-auth-core` without a key).
+
+1. Bump the version in all three POMs (e.g. `mvn versions:set -DnewVersion=0.2.0`). Central versions are immutable:
+   a published version can never be changed or deleted.
+2. From the **root** folder (not a module), on **JDK 25**:
+   ```bash
+   "$MVN" -Prelease clean deploy
+   ```
+   In IntelliJ: Maven tool window → *Profiles* → tick **release**, run `clean` + `deploy` on the root **gate-auth**
+   node. The Maven runner must use JDK 25 (*Settings → Build Tools → Maven → Runner → JRE*); the build stops early
+   with a clear message otherwise.
+3. One upload contains `gate-auth-parent` (POM), `gate-auth-core` and the starter (jar, sources, javadoc, `.asc`).
+   Press **Publish** in the Central Portal; files appear on `repo1.maven.org` within ~10–30 minutes.
+
+Plain `deploy` without `-Prelease` fails with "repository element was not specified" — that's the missing profile.
 
 ## Generate the gate key
 
-```bash
-java -cp gate-auth-core/target/gate-auth-core-0.1.0.jar io.github.technic47.gateauth.core.KeyTool
+With Java 25 (plain `java` on the owner's PC is 21). PowerShell, using the jar from the local Maven repository:
+
+```powershell
+& "$env:USERPROFILE\.jdks\graalvm-jdk-25\bin\java.exe" -cp "$env:USERPROFILE\.m2\repository\io\github\technic47\gateauth\gate-auth-core\0.1.0\gate-auth-core-0.1.0.jar" io.github.technic47.gateauth.core.KeyTool
 ```
-Prints the **private JWK** (secret, GateService only, `GATE_SIGNING_KEY_FILE`) and the **public key** as PEM and
-JWKS (for apps, `gate.auth.public-keys`).
+Prints the **private JWK** (secret: GateService only, as `GATE_SIGNING_KEY='{…}'` in its `.env`, single quotes) and
+the **public key** as PEM and JWKS (for apps, `gate.auth.public-keys`). Each run makes a new key.
 
 ## Use in an app
 
@@ -124,7 +150,10 @@ In controllers: `@AuthenticationPrincipal GateUser user` → `user.subject()` (s
 
 ## Order of work
 1. Spec ✓
-2. GateService side ✓ — branch `common_auth` in `../Gate Servise` (not deployed yet)
-3. Library ✓, first tried on FashionMark (edge only)
-4. Direct + local modes ✓ (library side)
-5. newBikeService adopts it (replaces Keycloak)
+2. GateService side ✓ — GateService 0.2.0, deployed on the VPS 2026-10-05
+3. Library ✓ — 0.1.0 on Maven Central
+4. Direct + local modes ✓ (library side; not yet tried end-to-end with a real app and browser)
+5. **Next:** newBikeService adopts it (replaces Keycloak)
+
+FashionMark deliberately does **not** use the library (decided 2026-10-05): a single-user personal tool behind the
+gate needs no in-app identity. It was upgraded to Boot 4 / Java 25 anyway, so it could adopt it later.

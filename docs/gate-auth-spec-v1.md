@@ -37,7 +37,8 @@ Constraints this design follows:
 ## 3. Keys
 
 - Algorithm: **Ed25519** (JWS `alg: EdDSA`, JWK `kty: OKP`, `crv: Ed25519`).
-- The **private key exists only in the gate** (PKCS#8 PEM file, path in `GATE_SIGNING_KEY_FILE`). It is never
+- The **private key exists only in the gate** (private JWK with `x` and `d`: inline in `GATE_SIGNING_KEY`, or a file
+  named by `GATE_SIGNING_KEY_FILE`). It is never
   committed, never logged, never copied to apps.
 - `kid` = RFC 7638 JWK thumbprint (base64url SHA-256), first 16 characters.
 - The gate publishes all currently valid public keys at **`GET /.well-known/jwks.json`** (no auth, cacheable 1 h).
@@ -370,8 +371,8 @@ Modes switch on restart only (no runtime toggle). Startup MUST fail if: no mode 
 5. `/auth/handoff` endpoint + response page (§6.3), activity log types `HANDOFF_ISSUED` / `HANDOFF_DENIED`.
 6. Config generator: `/api/` location with JSON 401/403, forward `X-Gate-Assertion`.
 
-Implemented in GateService, branch `common_auth` (2026-10-05): one table, three service columns, no new
-infrastructure. Signing key: `GATE_SIGNING_KEY` (inline private JWK) or `GATE_SIGNING_KEY_FILE`; without a key the
+Implemented in GateService 0.2.0, deployed on the VPS on 2026-10-05: one table (`user_service_role`), three
+service columns, no new infrastructure. Signing key: `GATE_SIGNING_KEY` (inline private JWK) or `GATE_SIGNING_KEY_FILE`; without a key the
 gate keeps working without tokens.
 
 ## 14. Security notes
