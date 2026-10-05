@@ -70,6 +70,32 @@
         </dependencies>
     </dependencyManagement>
 
+    <build>
+        <plugins>
+            <!-- Fail fast with a clear message when Maven itself runs on an older JDK (e.g. IntelliJ's Maven
+                 runner on JDK 21), instead of "class file version 69.0" errors deep in compile or test. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>require-java-25</id>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[25,)</version>
+                                    <message>gate-auth needs Maven to run on JDK 25+. In IntelliJ: Settings → Build,
+                                        Execution, Deployment → Build Tools → Maven → Runner → JRE.</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
     <profiles>
         <!-- mvn -Prelease deploy : sources, javadoc, GPG, Maven Central (same setup as the Shop starter) -->
         <profile>
