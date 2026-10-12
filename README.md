@@ -64,6 +64,11 @@ live in the **`release` profile**, so normal builds don't need GPG (GateService'
 
 Plain `deploy` without `-Prelease` fails with "repository element was not specified" — that's the missing profile.
 
+Signing key `F36407120C3EECF9` has an expiry date (it ran out on 2026-10-10 and was extended on 2026-10-13). An
+expired key shows up as `gpg: signing failed` (in Russian locale garbled, "Отсутствует секретный ключ"). Fix:
+`gpg --quick-set-expire <fingerprint> 2y` (and `'*'` for subkeys), then
+`gpg --keyserver keyserver.ubuntu.com --send-keys <fingerprint>` so Central sees the new date.
+
 ## Generate the gate key
 
 With Java 25 (plain `java` on the owner's PC is 21). PowerShell, using the jar from the local Maven repository:
