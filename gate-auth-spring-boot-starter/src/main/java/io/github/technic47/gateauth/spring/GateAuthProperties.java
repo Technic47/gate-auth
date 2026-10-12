@@ -1,6 +1,7 @@
 package io.github.technic47.gateauth.spring;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.core.io.Resource;
 
@@ -25,6 +26,7 @@ import java.util.List;
  * @param edge              edge mode settings
  * @param direct            direct (LAN) mode settings
  * @param local             local (break-glass) mode settings
+ * @param roles             role catalog sync from the gate (spec §4.5)
  */
 @ConfigurationProperties("gate.auth")
 public record GateAuthProperties(
@@ -41,7 +43,60 @@ public record GateAuthProperties(
         @DefaultValue("30s") Duration clockSkew,
         @DefaultValue Edge edge,
         @DefaultValue Direct direct,
-        @DefaultValue Local local) {
+        @DefaultValue Local local,
+        @DefaultValue Roles roles) {
+
+    /** The constructor Spring binds {@code gate.auth.*} to (the record has a second, compatibility constructor). */
+    @ConstructorBinding
+    public GateAuthProperties {
+    }
+
+    /**
+     * Properties without role catalog settings (library 0.1.0 signature, kept for code that builds them directly).
+     *
+     * @param appName            see the record
+     * @param issuer             see the record
+     * @param publicUrls         see the record
+     * @param apiPaths           see the record
+     * @param publicKeys         see the record
+     * @param publicKeysLocation see the record
+     * @param adminImpliesRoles  see the record
+     * @param localSecret        see the record
+     * @param basePath           see the record
+     * @param cookieSecure       see the record
+     * @param clockSkew          see the record
+     * @param edge               see the record
+     * @param direct             see the record
+     * @param local              see the record
+     */
+    public GateAuthProperties(String appName, String issuer, List<String> publicUrls, List<String> apiPaths,
+                              String publicKeys, Resource publicKeysLocation, List<String> adminImpliesRoles,
+                              String localSecret, String basePath, boolean cookieSecure, Duration clockSkew,
+                              Edge edge, Direct direct, Local local) {
+        this(appName, issuer, publicUrls, apiPaths, publicKeys, publicKeysLocation, adminImpliesRoles, localSecret,
+                basePath, cookieSecure, clockSkew, edge, direct, local,
+                new Roles(false, null, Duration.ofMinutes(10), List.of(), true));
+    }
+
+    /**
+     * Role catalog sync (spec §4.5): the gate defines the roles, the app fetches the list for itself. Authorization
+     * never depends on it (it uses the token's {@code roles}); the list adds names, descriptions and change events.
+     *
+     * @param enabled                fetch the catalog ({@code false} by default)
+     * @param gateUrl                the gate's URL; defaults to {@code direct.gate-url}
+     * @param refresh                how often to fetch; a token with a newer {@code rv} triggers a fetch at once
+     * @param handled                role codes this app implements; differences to the gate's list are logged
+     * @param trustAnyTlsCertificate accept the gate's TLS certificate without checking it (the gate runs on a bare
+     *                               IP with a self-signed certificate). Safe because the catalog itself is signed
+     *                               with the gate's key and verified
+     */
+    public record Roles(
+            @DefaultValue("false") boolean enabled,
+            String gateUrl,
+            @DefaultValue("10m") Duration refresh,
+            List<String> handled,
+            @DefaultValue("true") boolean trustAnyTlsCertificate) {
+    }
 
     /**
      * Edge mode: requests through VPS nginx carry a signed assertion.

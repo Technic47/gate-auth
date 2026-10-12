@@ -1,8 +1,8 @@
 package io.github.technic47.gateauth.core;
 
 /**
- * The two Gate Auth v1 token types (spec §4.1). The JOSE {@code typ} header keeps them apart, so a token issued
- * for one purpose is never accepted for the other.
+ * The Gate Auth v1 token types (spec §4.1, §4.5). The JOSE {@code typ} header keeps them apart, so a token issued
+ * for one purpose is never accepted for another.
  */
 public enum TokenType {
 
@@ -10,7 +10,14 @@ public enum TokenType {
     ASSERTION("gate-assertion+jwt", 60),
 
     /** Direct mode: posted by the browser to the app's callback to finish a LAN login. Lives 120 s. */
-    HANDOFF("gate-handoff+jwt", 120);
+    HANDOFF("gate-handoff+jwt", 120),
+
+    /**
+     * Role catalog: the roles an app may receive, served by the gate at
+     * {@code /.well-known/gate/apps/{app}/roles} (spec §4.5). Lives one day. Signed with
+     * {@link TokenSigner#signRoleCatalog(RoleCatalog)}, verified with {@link TokenVerifier#verifyRoleCatalog(String)}.
+     */
+    ROLES("gate-roles+jwt", 86_400);
 
     private final String typ;
     private final int defaultLifetimeSeconds;

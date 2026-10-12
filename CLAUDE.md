@@ -5,6 +5,12 @@ Shared auth standard + Java library for all of the owner's apps behind **GateSer
 ## Status
 - **0.1.0 published on Maven Central** (2026-10-05). Versions on Central are immutable: never re-release a version,
   bump it. Release steps: README, "Release to Maven Central".
+- **0.2.0 in progress (2026-10-12): role catalog** (spec §4.5): `TokenType.ROLES`, `RoleCatalog`, `rv` claim,
+  `TokenSigner.signRoleCatalog`, `TokenVerifier.verifyRoleCatalog`; starter `GateRoleCatalog` + `GateRolesChangedEvent`,
+  `gate.auth.roles.*`. Old 0.1.0 constructors of `GateClaims` and `GateAuthProperties` kept. Not released; release
+  after GateService 0.3.0 is ready (it needs `gate-auth-core` 0.2.0 from Central to build its image).
+  ⚠️ `mvn install` of an unchanged version overwrites the Central copy in `~/.m2` (happened 2026-10-12 with 0.1.0,
+  restored with `dependency:get`): bump the version before installing changed code.
 - GateService 0.2.0 issues tokens on the VPS (`kid=KENl1RAjjHUDtdGm`). No app uses the starter yet; newBikeService
   is the first. FashionMark deliberately doesn't use it.
 - Repo: `https://github.com/Technic47/gate-auth`.

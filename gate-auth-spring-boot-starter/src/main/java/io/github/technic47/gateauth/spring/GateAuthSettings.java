@@ -38,6 +38,7 @@ public final class GateAuthSettings {
     private final List<PathPattern> apiPatterns;
     private final GateKeySet keys;
     private final String gateUrl;
+    private final String rolesGateUrl;
     private final List<IpAddressMatcher> localNetworks;
 
     /**
@@ -83,8 +84,9 @@ public final class GateAuthSettings {
             apiPatterns.add(PathPatternParser.defaultInstance.parse(p));
         }
 
+        boolean roles = props.roles() != null && props.roles().enabled();
         GateKeySet parsedKeys = null;
-        if (edge || direct) {
+        if (edge || direct || roles) {
             try {
                 parsedKeys = GateKeySet.parse(readKeys(props));
             } catch (RuntimeException | IOException e) {
@@ -106,6 +108,22 @@ public final class GateAuthSettings {
             }
         }
         this.gateUrl = gate;
+
+        String rolesGate = null;
+        if (roles) {
+            rolesGate = props.roles().gateUrl() != null && !props.roles().gateUrl().isBlank()
+                    ? props.roles().gateUrl() : props.direct().gateUrl();
+            if (rolesGate == null || !rolesGate.startsWith("https://") && props.cookieSecure()) {
+                errors.add("gate.auth.roles.enabled needs the gate's https:// URL in gate.auth.roles.gate-url "
+                        + "or gate.auth.direct.gate-url");
+            } else {
+                rolesGate = rolesGate.replaceAll("/+$", "");
+            }
+            if (props.roles().refresh() == null || props.roles().refresh().toSeconds() < 60) {
+                errors.add("gate.auth.roles.refresh must be at least 1m");
+            }
+        }
+        this.rolesGateUrl = rolesGate;
 
         this.localNetworks = new ArrayList<>();
         if (local) {
@@ -201,6 +219,25 @@ public final class GateAuthSettings {
 
     GateKeySet keys() {
         return keys;
+    }
+
+    /**
+     * Where the role catalog is fetched from (spec §4.5), without trailing slash; set only when
+     * {@code gate.auth.roles.enabled}.
+     *
+     * @return the gate URL or {@code null}
+     */
+    public String rolesGateUrl() {
+        return rolesGateUrl;
+    }
+
+    /**
+     * Whether the role catalog is synced from the gate.
+     *
+     * @return {@code gate.auth.roles.enabled}
+     */
+    public boolean rolesEnabled() {
+        return rolesGateUrl != null;
     }
 
     /**

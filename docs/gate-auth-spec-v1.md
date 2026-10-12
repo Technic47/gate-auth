@@ -1,7 +1,7 @@
 # Gate Auth v1 — Specification
 
 - Status: **Draft**
-- Date: 2026-10-05
+- Date: 2026-10-05; role catalog (§4.5) added 2026-10-12 (library 0.2.0, GateService 0.3.0)
 - Applies to: GateService (`../Gate Servise`) and every app that uses the `gate-auth` library
 
 The key words MUST, MUST NOT, SHOULD, MAY are used as in RFC 2119.
@@ -33,6 +33,8 @@ Constraints this design follows:
 | **Local mode** | Break-glass login with accounts configured in the app itself, for when the gate is unreachable |
 | **Assertion** | Short-lived signed token sent on every edge-mode request (`typ: gate-assertion+jwt`) |
 | **Handoff token** | Short-lived signed token that ends a direct-mode login (`typ: gate-handoff+jwt`) |
+| **Role catalog** | The list of roles an app may receive, signed by the gate (`typ: gate-roles+jwt`, §4.5) |
+| **Global role** | A role defined once in the gate and assignable in every app (assigned per app, like any role) |
 
 ## 3. Keys
 
@@ -76,6 +78,7 @@ Different `typ` values stop a token issued for one purpose from being accepted f
 | `sid` | string | ✓ | ✓ | Hash of the gate session id (not the session id itself). Lets apps correlate logs |
 | `nonce` | string | | ✓ | Copied from the direct-mode request |
 | `auth_time` | int | | ✓ | When the user last entered a password at the gate |
+| `rv` | int | ✓ | ✓ | Role catalog version (§4.5) at issue time. Optional: absent from gates before 0.3.0 |
 
 Claim names follow OIDC where one exists, so a later move to a real OIDC provider keeps the same claims.
 
@@ -93,13 +96,49 @@ Any failure → the token is rejected as a whole. Apps MUST NOT fall back to ano
 Both hosts MUST run NTP; tokens are short-lived and clock drift breaks them.
 
 ### 4.4 Roles
-- The gate stores at most one role per user-app grant (table `user_service_role`, kept only while the
-  access grant exists).
-- `roles` = that grant's role as a one-element array, or `[]` if the grant has no role.
+- **The gate is the only place where roles are defined** (§4.5). A role is either **global** (defined once,
+  assignable in every app) or **app-specific** (one app). Either way it is **assigned per user and app**: a user
+  can be `admin` in one app and `viewer` in another.
+- A user-app grant can carry **several roles** (table `user_service_role`, rows kept only while the access
+  grant exists; gate 0.2.0 stored at most one).
+- `roles` = all roles of that grant, sorted, or `[]` if the grant has none. Archived roles are never issued.
 - A gate `ADMIN` with no explicit grant who passes via `adminBypassesAccess` gets `roles: []` and
   `gate_role: "ADMIN"`. Each app decides in config whether `gate_role=ADMIN` implies an app role
   (library property `gate.auth.admin-implies-roles`).
-- Role names are app-defined lowercase strings. Apps map them to authorities `ROLE_<UPPERCASE>`.
+- Role codes are lowercase strings (`^[a-z][a-z0-9_-]{0,31}$`) chosen in the gate. Apps map them to
+  authorities `ROLE_<UPPERCASE>`. **What a role allows is decided by the app** (code or app configuration); a role
+  the app doesn't know yet MUST grant nothing.
+
+### 4.5 Role catalog (gate → app sync)
+The gate tells each app which roles exist for it, so apps can show role names, configure what new roles mean and
+notice changes, without a list of their own.
+
+**Endpoint**: `GET /.well-known/gate/apps/{app-name}/roles` on the gate. No authentication: role codes and names
+are not secret, and the response is **signed**, so an app trusts it exactly as far as it trusts the gate's key.
+Answer `200` with `Content-Type: application/jwt` and a JWS compact token; `404` for an unknown or disabled app.
+`Cache-Control: no-cache` (apps decide how often they ask).
+
+Header `{ "alg": "EdDSA", "kid": "<kid>", "typ": "gate-roles+jwt" }`. Claims:
+
+| Claim | Type | Meaning |
+|---|---|---|
+| `v` | int | `1` |
+| `iss` | string | Gate id |
+| `aud` | string | The app-name |
+| `iat`, `exp` | int | Issue time; `exp = iat + 86400` (one day). Bounds how long a captured old catalog could be replayed |
+| `rv` | int | Catalog version: increases whenever any role definition changes (create, edit, archive, restore). One counter for the whole gate |
+| `roles` | object[] | Active roles for this app: `{ "code", "name", "description", "global" }`; global ones included; sorted by the gate's order. Archived roles are left out |
+
+**App validation**: as §4.3 steps 1–4 with `typ = gate-roles+jwt` and `aud` = own app-name; `exp > now − skew`,
+`iat < now + skew`, `exp − iat ≤ 7 days`; `rv` ≥ 0; every role has a valid `code`. A catalog with a lower `rv`
+than the one the app already has is ignored (no rollback by replay).
+
+**Sync**: apps fetch the catalog at start, then every `refresh` (default 10 min), and **at once when a verified
+token carries a higher `rv`** than the cached catalog (debounced, at most once per minute). The gate may be
+unreachable: apps keep the last verified catalog and retry. **Authorization never depends on the catalog**: it uses
+the token's `roles` (§4.4); the catalog only adds names, descriptions and change notices. An app MAY declare the
+role codes it handles; the library logs a warning for codes the gate offers that the app doesn't handle, and for
+handled codes the gate doesn't offer.
 
 ## 5. Edge mode (via VPS)
 
@@ -330,6 +369,11 @@ gate:
     public-keys: ${GATE_PUBLIC_KEYS}      # one or more PEM/JWK; jwks-url optional refresh
     public-keys-location:                 # alternative: file/classpath resource with the same content
     admin-implies-roles: [admin]          # roles granted when gate_role=ADMIN; [] = none
+    roles:                                # role catalog sync (§4.5), library 0.2.0+
+      enabled: true                       # needs gate-url (direct.gate-url or roles.gate-url)
+      gate-url:                           # default: direct.gate-url
+      refresh: 10m
+      handled: [viewer, editor, admin]    # optional: codes the app implements; mismatches are logged
     local-secret: ${APP_AUTH_SECRET}      # HMAC for handoff cookie; required if direct enabled (≥ 32 chars)
     base-path: /auth                      # library endpoints; callback = <base-path>/callback
     cookie-secure: true                   # false only for plain-http local development
@@ -372,7 +416,11 @@ Modes switch on restart only (no runtime toggle). Startup MUST fail if: no mode 
 6. Config generator: `/api/` location with JSON 401/403, forward `X-Gate-Assertion`.
 
 Implemented in GateService 0.2.0, deployed on the VPS on 2026-10-05: one table (`user_service_role`), three
-service columns, no new infrastructure. Signing key: `GATE_SIGNING_KEY` (inline private JWK) or `GATE_SIGNING_KEY_FILE`; without a key the
+service columns, no new infrastructure.
+
+Role catalog (§4.5), GateService 0.3.0: table `role` (code immutable, global or one app, archive instead of delete,
+archive blocked while assigned), several roles per grant, admin page for roles, `rv` in tokens, the catalog
+endpoint; existing per-app roles are migrated into `role` as app-specific roles. Signing key: `GATE_SIGNING_KEY` (inline private JWK) or `GATE_SIGNING_KEY_FILE`; without a key the
 gate keeps working without tokens.
 
 ## 14. Security notes

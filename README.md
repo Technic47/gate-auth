@@ -5,6 +5,8 @@ The gate is the only place where users, passwords and per-app access live; apps 
 
 - Spec (normative): [`docs/gate-auth-spec-v1.md`](docs/gate-auth-spec-v1.md)
 - Status: **0.1.0 is on Maven Central** (`io.github.technic47.gateauth`), all three modes implemented and tested.
+  **0.2.0 (not yet released, 2026-10-12): role catalog** (§4.5): the gate defines roles (global or per app), apps
+  sync them; several roles per user and app; `rv` claim. Needs GateService 0.3.0.
   GateService 0.2.0 issues the tokens and runs on the VPS since 2026-10-05 (key id `KENl1RAjjHUDtdGm`, public key at
   `https://144.31.187.7/.well-known/jwks.json`). No app uses the starter yet; newBikeService will be the first.
 - Repository: `https://github.com/Technic47/gate-auth`
@@ -24,7 +26,7 @@ Each mode is switched on/off per app in config (restart to apply); one app can r
 | Artifact | Contents |
 |---|---|
 | `gate-auth-core` | Plain Java 25, **no dependencies**. Ed25519 JWS sign/verify (JDK only), `GateClaims`, `GateUser`, key parsing (PEM / JWK / JWKS), `ReplayGuard`, `KeyTool`. Used by apps **and** by GateService (signer) |
-| `gate-auth-spring-boot-starter` | Spring Boot 4.1 / Spring Security 7.1 servlet starter: filters for all modes, `/auth/*` endpoints, CSRF (SPA cookie + header) and Origin checks, session handling |
+| `gate-auth-spring-boot-starter` | Spring Boot 4.1 / Spring Security 7.1 servlet starter: filters for all modes, `/auth/*` endpoints, CSRF (SPA cookie + header) and Origin checks, session handling, role catalog sync (`GateRoleCatalog`, 0.2.0) |
 
 Coordinates: `io.github.technic47.gateauth:<artifact>:0.1.0` (Maven Central). Java 25, Spring Boot 4.1 / Spring
 Security 7.1 for the starter. Apps on Boot 3 or older Java can't use it.
@@ -132,6 +134,27 @@ SecurityFilterChain security(HttpSecurity http, GateAuthSecurity gateAuth) throw
 In controllers: `@AuthenticationPrincipal GateUser user` → `user.subject()` (stable id: key your data on it),
 `user.username()`, `user.roles()`, `user.mode()`.
 
+### Roles from the gate (0.2.0, spec §4.5)
+The gate is the only place where roles are defined: global roles (assignable in every app) and app-specific ones;
+a user can have several roles per app. The app syncs the list the gate offers it:
+
+```yaml
+gate:
+  auth:
+    roles:
+      enabled: true
+      gate-url: https://144.31.187.7        # default: direct.gate-url
+      refresh: 10m                          # plus at once when a token carries a newer rv (max. once a minute)
+      handled: [viewer, editor, admin]      # optional: codes the app implements; differences are logged
+```
+
+- `GateRoleCatalog` (bean): `current()` = the last verified catalog (code, name, description, global), `displayName(code)`.
+- `@EventListener GateRolesChangedEvent` fires when a newer catalog arrives (e.g. to show new roles as "not configured").
+- **Authorization still uses the token's `roles`** (`ROLE_<CODE>`); the catalog only adds names and change events.
+  A role the app doesn't handle must grant nothing. While the gate is unreachable the last catalog stays.
+- The gate's self-signed TLS certificate is accepted for this one request (`trust-any-tls-certificate: true`,
+  default): the catalog is signed with the gate key and verified, so the content can't be forged.
+
 ### For the SPA
 - `GET /auth/me` → current user, or 401 with `login_url`.
 - Any API 401 has `login_url`: `location.href = login_url + "?redirect=" + encodeURIComponent(location.pathname + location.search)`.
@@ -154,6 +177,7 @@ In controllers: `@AuthenticationPrincipal GateUser user` → `user.subject()` (s
 3. Library ✓ — 0.1.0 on Maven Central
 4. Direct + local modes ✓ (library side; not yet tried end-to-end with a real app and browser)
 5. **Next:** newBikeService adopts it (replaces Keycloak)
+6. Role catalog (spec §4.5) — library 0.2.0 done 2026-10-12 (not released); GateService 0.3.0 in progress
 
 FashionMark deliberately does **not** use the library (decided 2026-10-05): a single-user personal tool behind the
 gate needs no in-app identity. It was upgraded to Boot 4 / Java 25 anyway, so it could adopt it later.

@@ -5,12 +5,14 @@ import jakarta.servlet.SessionCookieConfig;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.security.autoconfigure.web.servlet.ConditionalOnDefaultWebSecurity;
 import org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration;
 import org.springframework.boot.web.servlet.ServletContextInitializer;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -49,10 +51,21 @@ public class GateAuthAutoConfiguration {
         return settings.directEnabled() ? new GateReachability.Tcp(settings.gateUrl(), Clock.systemUTC()) : () -> false;
     }
 
+    /** Role catalog sync from the gate (spec §4.5), only with {@code gate.auth.roles.enabled=true}. */
+    @Bean
+    @ConditionalOnProperty(name = "gate.auth.roles.enabled", havingValue = "true")
+    @ConditionalOnMissingBean
+    GateRoleCatalog gateRoleCatalog(GateAuthSettings settings, ApplicationEventPublisher events,
+                                    ObjectProvider<Clock> clock) {
+        return new GateRoleCatalog(settings, events, clock.getIfAvailable(Clock::systemUTC));
+    }
+
     @Bean
     GateAuthSecurity gateAuthSecurity(GateAuthSettings settings, ReplayGuard replayGuard,
-                                      GateReachability reachability, ObjectProvider<Clock> clock) {
-        return new GateAuthSecurity(settings, replayGuard, reachability, clock.getIfAvailable(Clock::systemUTC));
+                                      GateReachability reachability, ObjectProvider<Clock> clock,
+                                      ObjectProvider<GateRoleCatalog> roles) {
+        return new GateAuthSecurity(settings, replayGuard, reachability, clock.getIfAvailable(Clock::systemUTC),
+                roles.getIfAvailable());
     }
 
     @Bean

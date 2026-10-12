@@ -92,7 +92,48 @@ public final class TokenVerifier {
         return verify(token, TokenType.HANDOFF, expectedNonce);
     }
 
-    private GateClaims verify(String token, TokenType expectedType, String expectedNonce) throws TokenValidationException {
+    /**
+     * Verifies a role catalog fetched from the gate (spec §4.5): structure, type {@code gate-roles+jwt}, key and
+     * signature, version, issuer, audience (this app), time window and lifetime (at most seven days).
+     * Whether its {@code rv} is newer than the app's current catalog is the caller's check.
+     *
+     * @param token the response body of {@code /.well-known/gate/apps/{app}/roles}
+     * @return the verified catalog
+     * @throws TokenValidationException if a check fails
+     */
+    public RoleCatalog verifyRoleCatalog(String token) throws TokenValidationException {
+        Map<String, Object> payload = verifiedPayload(token, TokenType.ROLES);
+        RoleCatalog catalog;
+        try {
+            catalog = RoleCatalog.fromMap(payload);
+        } catch (IllegalArgumentException e) {
+            throw new TokenValidationException(Reason.INVALID_CLAIMS, e.getMessage());
+        }
+        if (catalog.version() != GateClaims.VERSION) {
+            throw new TokenValidationException(Reason.UNSUPPORTED_VERSION, "v=" + catalog.version());
+        }
+        if (!issuer.equals(catalog.issuer())) {
+            throw new TokenValidationException(Reason.WRONG_ISSUER, catalog.issuer());
+        }
+        if (!audience.equals(catalog.audience())) {
+            throw new TokenValidationException(Reason.WRONG_AUDIENCE, catalog.audience());
+        }
+        long now = clock.instant().getEpochSecond();
+        if (catalog.expiresAt() <= now - skewSeconds) {
+            throw new TokenValidationException(Reason.EXPIRED, "exp=" + catalog.expiresAt() + " now=" + now);
+        }
+        if (catalog.issuedAt() >= now + skewSeconds) {
+            throw new TokenValidationException(Reason.NOT_YET_VALID, "iat=" + catalog.issuedAt() + " now=" + now);
+        }
+        long lifetime = catalog.expiresAt() - catalog.issuedAt();
+        if (lifetime <= 0 || lifetime > RoleCatalog.MAX_LIFETIME_SECONDS) {
+            throw new TokenValidationException(Reason.LIFETIME_TOO_LONG, lifetime + " s");
+        }
+        return catalog;
+    }
+
+    /** Steps 1-3 of spec §4.3: structure, algorithm, type, key and signature. Returns the payload. */
+    private Map<String, Object> verifiedPayload(String token, TokenType expectedType) throws TokenValidationException {
         // 1. structure + algorithm
         if (token == null || token.isEmpty() || token.length() > MAX_TOKEN_LENGTH) {
             throw new TokenValidationException(Reason.MALFORMED, "empty or too long");
@@ -132,7 +173,11 @@ public final class TokenVerifier {
         if (!signatureValid(key, parts[0] + "." + parts[1], signature)) {
             throw new TokenValidationException(Reason.BAD_SIGNATURE, "kid " + kid);
         }
+        return payload;
+    }
 
+    private GateClaims verify(String token, TokenType expectedType, String expectedNonce) throws TokenValidationException {
+        Map<String, Object> payload = verifiedPayload(token, expectedType);
         GateClaims claims;
         try {
             claims = GateClaims.fromMap(payload);

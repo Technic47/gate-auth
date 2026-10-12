@@ -33,7 +33,11 @@ final class GateAuthFilter extends OncePerRequestFilter {
     private final GateSessions sessions;
     private final SecurityContextHolderStrategy holder = SecurityContextHolder.getContextHolderStrategy();
 
-    GateAuthFilter(GateAuthSettings settings, TokenVerifier verifier, GateSessions sessions) {
+    private final java.util.function.Consumer<Long> roleVersionSeen;
+
+    GateAuthFilter(GateAuthSettings settings, TokenVerifier verifier, GateSessions sessions,
+                   java.util.function.Consumer<Long> roleVersionSeen) {
+        this.roleVersionSeen = roleVersionSeen;
         this.settings = settings;
         this.verifier = verifier;
         this.sessions = sessions;
@@ -66,6 +70,7 @@ final class GateAuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        roleVersionSeen.accept(claims.roleVersion());
         SecurityContext context = holder.createEmptyContext();
         context.setAuthentication(new GateAuthentication(GateUser.from(claims, AuthMode.EDGE), settings.adminImpliesRoles()));
         holder.setContext(context);

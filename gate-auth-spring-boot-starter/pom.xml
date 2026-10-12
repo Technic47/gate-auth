@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.technic47.gateauth</groupId>
         <artifactId>gate-auth-parent</artifactId>
-        <version>0.1.0</version>
+        <version>0.2.0</version>
     </parent>
 
     <artifactId>gate-auth-spring-boot-starter</artifactId>

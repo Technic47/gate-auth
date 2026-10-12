@@ -25,6 +25,8 @@ import java.util.Objects;
  * @param sessionId         claim {@code sid}: hash of the gate session id, or {@code null}
  * @param nonce             claim {@code nonce} (handoff only), or {@code null}
  * @param authTime          claim {@code auth_time} (handoff only): last password login, epoch seconds, or {@code null}
+ * @param roleVersion       claim {@code rv}: role catalog version at issue time (spec §4.5), or {@code null} from
+ *                          gates before 0.3.0
  */
 public record GateClaims(
         int version,
@@ -40,7 +42,8 @@ public record GateClaims(
         String tokenId,
         String sessionId,
         String nonce,
-        Long authTime) {
+        Long authTime,
+        Long roleVersion) {
 
     /** The only standard version this library knows. */
     public static final int VERSION = 1;
@@ -53,6 +56,32 @@ public record GateClaims(
     public GateClaims {
         roles = roles == null ? List.of() : List.copyOf(roles);
         services = services == null ? List.of() : List.copyOf(services);
+    }
+
+    /**
+     * Claims without a role catalog version, as issued by gates before 0.3.0 (library 0.1.0 signature, kept for
+     * code that builds claims directly).
+     *
+     * @param version           {@code v}
+     * @param issuer            {@code iss}
+     * @param subject           {@code sub}
+     * @param preferredUsername {@code preferred_username}
+     * @param audience          {@code aud}
+     * @param gateRole          {@code gate_role}
+     * @param roles             {@code roles}
+     * @param services          {@code svc}
+     * @param issuedAt          {@code iat}
+     * @param expiresAt         {@code exp}
+     * @param tokenId           {@code jti}
+     * @param sessionId         {@code sid}
+     * @param nonce             {@code nonce}
+     * @param authTime          {@code auth_time}
+     */
+    public GateClaims(int version, String issuer, String subject, String preferredUsername, String audience,
+                      String gateRole, List<String> roles, List<String> services, long issuedAt, long expiresAt,
+                      String tokenId, String sessionId, String nonce, Long authTime) {
+        this(version, issuer, subject, preferredUsername, audience, gateRole, roles, services, issuedAt, expiresAt,
+                tokenId, sessionId, nonce, authTime, null);
     }
 
     /**
@@ -82,6 +111,9 @@ public record GateClaims(
         if (authTime != null) {
             m.put("auth_time", authTime);
         }
+        if (roleVersion != null) {
+            m.put("rv", roleVersion);
+        }
         return m;
     }
 
@@ -108,7 +140,8 @@ public record GateClaims(
                 optString(m, "jti"),
                 optString(m, "sid"),
                 optString(m, "nonce"),
-                m.get("auth_time") == null ? null : requireLong(m, "auth_time"));
+                m.get("auth_time") == null ? null : requireLong(m, "auth_time"),
+                m.get("rv") == null ? null : requireLong(m, "rv"));
     }
 
     /**
@@ -192,6 +225,7 @@ public record GateClaims(
         private String sessionId;
         private String nonce;
         private Long authTime;
+        private Long roleVersion;
 
         Builder() {
         }
@@ -293,6 +327,14 @@ public record GateClaims(
         public Builder authTime(Instant v) { this.authTime = v == null ? null : v.getEpochSecond(); return this; }
 
         /**
+         * Sets claim {@code rv}: the role catalog version at issue time (spec §4.5).
+         *
+         * @param v the version, or {@code null} to leave the claim out
+         * @return this builder
+         */
+        public Builder roleVersion(Long v) { this.roleVersion = v; return this; }
+
+        /**
          * Builds claims for the given token type. {@code nonce} and {@code auth_time} are kept only for handoff tokens.
          *
          * @param type token type; decides the default lifetime (60 s / 120 s)
@@ -306,11 +348,14 @@ public record GateClaims(
             if (type == TokenType.HANDOFF && nonce == null) {
                 throw new IllegalArgumentException("handoff token needs a nonce");
             }
+            if (type == TokenType.ROLES) {
+                throw new IllegalArgumentException("a role catalog is a RoleCatalog, not GateClaims");
+            }
             long iat = (issuedAt == null ? Instant.now() : issuedAt).getEpochSecond();
             int life = lifetimeSeconds == null ? type.defaultLifetimeSeconds() : lifetimeSeconds;
             return new GateClaims(VERSION, issuer, subject, preferredUsername, audience, gateRole, roles, services,
                     iat, iat + life, randomId(), sessionId, type == TokenType.HANDOFF ? nonce : null,
-                    type == TokenType.HANDOFF ? authTime : null);
+                    type == TokenType.HANDOFF ? authTime : null, roleVersion);
         }
     }
 }

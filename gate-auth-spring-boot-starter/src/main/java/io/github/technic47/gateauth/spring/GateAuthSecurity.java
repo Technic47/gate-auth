@@ -35,6 +35,7 @@ public final class GateAuthSecurity {
     private final DirectLogin directLogin;
     private final LocalLogin localLogin;
     private final GateReachability reachability;
+    private final java.util.function.Consumer<Long> roleVersionSeen;
 
     /**
      * Creates the configurer. Normally a bean from {@link GateAuthAutoConfiguration}; inject it instead of
@@ -47,12 +48,29 @@ public final class GateAuthSecurity {
      */
     public GateAuthSecurity(GateAuthSettings settings, ReplayGuard replayGuard, GateReachability reachability,
                             Clock clock) {
+        this(settings, replayGuard, reachability, clock, null);
+    }
+
+    /**
+     * Creates the configurer with role catalog sync: every verified token's {@code rv} is passed on, so a newer
+     * catalog is fetched at once (spec §4.5).
+     *
+     * @param settings     validated settings
+     * @param replayGuard  single-use check for handoff tokens
+     * @param reachability whether the gate can be reached (for silent re-checks)
+     * @param clock        source of the current time
+     * @param roles        the synced role catalog, or {@code null} when {@code gate.auth.roles.enabled} is off
+     */
+    public GateAuthSecurity(GateAuthSettings settings, ReplayGuard replayGuard, GateReachability reachability,
+                            Clock clock, GateRoleCatalog roles) {
         this.settings = settings;
+        this.roleVersionSeen = roles == null ? v -> { } : roles::versionSeen;
         this.sessions = new GateSessions(settings, clock);
         this.verifier = settings.keys() == null ? null
                 : new TokenVerifier(settings.keys(), settings.props().issuer(), settings.appName(),
                 settings.props().clockSkew(), clock);
-        this.directLogin = settings.directEnabled() ? new DirectLogin(settings, verifier, replayGuard, sessions) : null;
+        this.directLogin = settings.directEnabled()
+                ? new DirectLogin(settings, verifier, replayGuard, sessions, roleVersionSeen) : null;
         this.localLogin = new LocalLogin(settings, sessions);
         this.reachability = reachability;
     }
@@ -96,7 +114,8 @@ public final class GateAuthSecurity {
                 .httpBasic(b -> b.disable())
                 .logout(l -> l.disable());
 
-        http.addFilterAfter(new GateAuthFilter(settings, verifier, sessions), SecurityContextHolderFilter.class);
+        http.addFilterAfter(new GateAuthFilter(settings, verifier, sessions, roleVersionSeen),
+                SecurityContextHolderFilter.class);
         http.addFilterBefore(new OriginCheckFilter(settings), CsrfFilter.class);
         http.addFilterAfter(new GateAuthEndpointsFilter(settings, sessions, directLogin, localLogin), CsrfFilter.class);
         if (settings.directEnabled()) {

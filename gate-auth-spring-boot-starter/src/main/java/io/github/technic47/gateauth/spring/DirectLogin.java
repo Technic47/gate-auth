@@ -34,7 +34,11 @@ final class DirectLogin {
     private final ReplayGuard replayGuard;
     private final GateSessions sessions;
 
-    DirectLogin(GateAuthSettings settings, TokenVerifier verifier, ReplayGuard replayGuard, GateSessions sessions) {
+    private final java.util.function.Consumer<Long> roleVersionSeen;
+
+    DirectLogin(GateAuthSettings settings, TokenVerifier verifier, ReplayGuard replayGuard, GateSessions sessions,
+                java.util.function.Consumer<Long> roleVersionSeen) {
+        this.roleVersionSeen = roleVersionSeen;
         this.settings = settings;
         this.verifier = verifier;
         this.replayGuard = replayGuard;
@@ -119,6 +123,7 @@ final class DirectLogin {
             return;
         }
 
+        roleVersionSeen.accept(claims.roleVersion());
         GateUser user = GateUser.from(claims, AuthMode.DIRECT);
         GateUser current = currentDirectUser();
         if (c.recheck() && current != null && current.subject().equals(user.subject())) {
